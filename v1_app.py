@@ -129,7 +129,7 @@ st.markdown(f"Connected as user: **{CURRENT_USER}**")
 # --- Section 1: Display Silver Tables & Select Invoice ---
 st.header("1. Invoices Awaiting Review")
 
-review_status_options = ['Pending Review', 'Reviewed', 'All']
+review_status_options = ['Pending Review', 'Reviewed', 'Auto-Reconciled']
 selected_status = st.selectbox("Filter by Review Status:", review_status_options, index=0) # Default to 'Pending Review'
 
 # Load distinct invoice IDs based on filter
@@ -350,6 +350,7 @@ if selected_invoice_id:
                         # Add original DOCAI values if needed/available in your schema
                         # gold_items_df['original_docai_...'] = ...
                         gold_items_df['NOTES'] = review_notes # Add notes
+                        gold_items_df['LINE_INSTANCE_NUMBER'] = 999
 
                          # Convert Pandas DataFrame to Snowpark DataFrame for writing
                         snowpark_gold_items = session.create_dataframe(gold_items_df)
@@ -375,6 +376,7 @@ if selected_invoice_id:
                         gold_totals_df['REVIEWED_TIMESTAMP'] = current_ts
                         # Add original DOCAI values if needed
                         gold_totals_df['NOTES'] = review_notes
+                        #gold_totals_df['LINE_INSTANCE_NUMBER'] = ""
 
                         # Convert Pandas DataFrame to Snowpark DataFrame for writing
                         snowpark_gold_totals = session.create_dataframe(gold_totals_df)

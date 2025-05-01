@@ -235,7 +235,7 @@ CREATE OR REPLACE TABLE doc_ai_qs_db.doc_ai_schema.GOLD_INVOICE_ITEMS (
     reviewed_by VARCHAR,
     reviewed_timestamp TIMESTAMP_NTZ,
     notes VARCHAR, -- Link to notes in silver or separate notes field
-    -- line_instance_number NUMBER
+    line_instance_number NUMBER
 );
 
 -- Gold table for corrected transaction totals
@@ -247,10 +247,8 @@ CREATE OR REPLACE TABLE doc_ai_qs_db.doc_ai_schema.GOLD_INVOICE_TOTALS (
     total DECIMAL(10,2), -- Assuming decimal for currency
     reviewed_by VARCHAR,
     reviewed_timestamp TIMESTAMP_NTZ,
-    -- original_docai_subtotal DECIMAL(10,2), -- Optional
-    -- original_docai_tax DECIMAL(10,2),      -- Optional
-    -- original_docai_total DECIMAL(10,2),    -- Optional
-    notes VARCHAR, -- Link to notes in silver or separate notes field
+    notes VARCHAR -- Link to notes in silver or separate notes field
+    -- line_instance_number NUMBER
 );
 
 -- It might be more efficient to have a single GOLD_INVOICES table combining items and totals,
