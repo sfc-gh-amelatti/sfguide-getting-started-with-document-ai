@@ -128,13 +128,13 @@ ALTER TASK doc_ai_qs_db.doc_ai_schema.DOCAI_EXTRACT RESUME;
 CREATE SCHEMA doc_ai_qs_db.streamlit_schema;
 
 -- TABLE FOR THE STREAMLIT APP
-CREATE OR REPLACE TABLE doc_ai_qs_db.doc_ai_schema.CO_INVOICES_VERIFIED
-(
-    file_name string
-    , snowflake_file_url string
-    , verification_date TIMESTAMP
-    , verification_user string
-);
+-- CREATE OR REPLACE TABLE doc_ai_qs_db.doc_ai_schema.CO_INVOICES_VERIFIED
+-- (
+--     file_name string
+--     , snowflake_file_url string
+--     , verification_date TIMESTAMP
+--     , verification_user string
+-- );
 
 CREATE OR REPLACE TABLE doc_ai_qs_db.doc_ai_schema.TRANSACT_ITEMS (
     invoice_id VARCHAR(255),
@@ -143,6 +143,11 @@ CREATE OR REPLACE TABLE doc_ai_qs_db.doc_ai_schema.TRANSACT_ITEMS (
     unit_price NUMBER(10, 2),
     total_price NUMBER(12, 2)
 );
+
+-- CREATE A STREAM TO MONITOR THE Bronze db table for new items to pass to our reconciliation task
+-- CREATE OR REPLACE STREAM doc_ai_qs_db.doc_ai_schema.BRONZE_DB_STREAM 
+-- ON TABLE 
+
 
 -- Example INSERT statement for the first few rows
 INSERT INTO doc_ai_qs_db.doc_ai_schema.TRANSACT_ITEMS (invoice_id, product_name, quantity, unit_price, total_price) VALUES

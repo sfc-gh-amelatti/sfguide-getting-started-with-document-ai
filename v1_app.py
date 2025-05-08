@@ -350,7 +350,11 @@ if selected_invoice_id:
                         # Add original DOCAI values if needed/available in your schema
                         # gold_items_df['original_docai_...'] = ...
                         gold_items_df['NOTES'] = review_notes # Add notes
-                        gold_items_df['LINE_INSTANCE_NUMBER'] = 999
+                        gold_items_df['LINE_INSTANCE_NUMBER'] = gold_items_df.sort_values(
+                            ['INVOICE_ID', 'PRODUCT_NAME', 'QUANTITY', 'UNIT_PRICE', 'TOTAL_PRICE']
+                        ).groupby(
+                            ['INVOICE_ID', 'PRODUCT_NAME']
+                        ).cumcount() + 1
 
                          # Convert Pandas DataFrame to Snowpark DataFrame for writing
                         snowpark_gold_items = session.create_dataframe(gold_items_df)
