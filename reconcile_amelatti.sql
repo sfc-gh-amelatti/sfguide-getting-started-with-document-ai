@@ -4,41 +4,16 @@ USE WAREHOUSE doc_ai_qs_wh;
 USE DATABASE doc_ai_qs_db;
 USE SCHEMA doc_ai_schema;
 
--- Redefine the target table to capture specific column discrepancies
-CREATE OR REPLACE TABLE doc_ai_qs_db.doc_ai_schema.RECONCILE_RESULTS_ITEMS (
-    invoice_id VARCHAR,
-    product_name VARCHAR,
-    reconciliation_status VARCHAR,
-    item_mismatch_details VARIANT,
-    review_status VARCHAR,
-    last_reconciled_timestamp TIMESTAMP_NTZ,
-    reviewed_by VARCHAR,
-    reviewed_timestamp TIMESTAMP_NTZ,
-    corrected_invoice_number VARCHAR,
-    notes VARCHAR,
-    line_instance_number NUMBER,
-    quantity NUMBER,            
-    unit_price DECIMAL(12,2),
-    total_price DECIMAL(12,2)
-);
 
--- Redefine the target table to capture specific column discrepancies
-CREATE OR REPLACE TABLE doc_ai_qs_db.doc_ai_schema.RECONCILE_RESULTS_TOTALS (
-    invoice_id VARCHAR,
-    reconciliation_status VARCHAR,
-    item_mismatch_details VARIANT,
-    review_status VARCHAR,
-    last_reconciled_timestamp TIMESTAMP_NTZ,
-    reviewed_by VARCHAR,
-    reviewed_timestamp TIMESTAMP_NTZ,
-    corrected_invoice_number VARCHAR,
-    notes VARCHAR,
-    invoice_date DATE,
-    subtotal DECIMAL(10,2),
-    tax DECIMAL(10,2),
-    total DECIMAL(10,2)
-    
-);
+CALL SP_RUN_ITEM_RECONCILIATION();
+CALL SP_RUN_TOTALS_RECONCILIATION();
+SELECT * FROM doc_ai_qs_db.doc_ai_schema.RECONCILE_RESULTS_ITEMS ORDER BY INVOICE_ID, PRODUCT_NAME;
+SELECT * FROM doc_ai_qs_db.doc_ai_schema.GOLD_INVOICE_ITEMS ORDER BY INVOICE_ID, PRODUCT_NAME;
+
+SELECT * FROM doc_ai_qs_db.doc_ai_schema.RECONCILE_RESULTS_TOTALS ORDER BY INVOICE_ID;
+SELECT * FROM doc_ai_qs_db.doc_ai_schema.GOLD_INVOICE_TOTALS ORDER BY INVOICE_ID;
+
+
 
 CREATE OR REPLACE PROCEDURE doc_ai_qs_db.doc_ai_schema.SP_RUN_ITEM_RECONCILIATION()
 RETURNS VARCHAR
@@ -523,7 +498,7 @@ BEGIN
   ) AS source
   -- << MODIFIED >> Use invoice_id, product_name, and line_instance_number as the unique key for merge
   ON target.invoice_id = source.invoice_id
-     AND target.invoice_date IS NOT DISTINCT FROM source.invoice_date -- Handle potential NULL product names
+     --AND target.invoice_date IS NOT DISTINCT FROM source.invoice_date -- Handle potential NULL product names
 
   -- << MODIFIED >> Action when a record for this item instance already exists
   WHEN MATCHED THEN UPDATE SET
@@ -597,7 +572,7 @@ BEGIN
       NumberedDocaiItems_ForGold AS (
           SELECT
               ci.*,
-              ROW_NUMBER() OVER (PARTITION BY ci.invoice_id ORDER BY ci.invoice_date, ci.subtotal, ci.tax, ci.total) as rn -- Use the EXACT SAME ORDER BY as before
+              --ROW_NUMBER() OVER (PARTITION BY ci.invoice_id ORDER BY ci.invoice_date, ci.subtotal, ci.tax, ci.total) as rn -- Use the EXACT SAME ORDER BY as before
           FROM doc_ai_qs_db.doc_ai_schema.DOCAI_INVOICE_TOTALS ci
           -- Only select items for invoices identified as fully reconciled
           INNER JOIN FullyReconciledInvoices fri ON ci.invoice_id = fri.invoice_id
@@ -618,11 +593,9 @@ BEGIN
       )
       SELECT * FROM ReadyForGold
   ) AS gold_source
-  -- << MODIFIED >> Match on invoice, product, AND line instance number for uniqueness in Gold table
-  -- ASSUMPTION: GOLD_INVOICE_TOTALS has a line_instance_number column (or similar)
+  -- << MODIFIED >>
+  -- ASSUMPTION: GOLD_INVOICE_TOTALS
   ON gold_target.invoice_id = gold_source.invoice_id
-     --AND gold_target.product_name IS NOT DISTINCT FROM gold_source.product_name
-     --AND gold_target.line_instance_number = gold_source.line_instance_number -- Use line instance number
 
   -- Action if the auto-reconciled item already exists in Gold (e.g., re-processed)
   WHEN MATCHED THEN UPDATE SET
@@ -670,12 +643,155 @@ EXCEPTION
 END;
 $$;
 
+-- Redefine the target table to capture specific column discrepancies
+CREATE OR REPLACE TABLE doc_ai_qs_db.doc_ai_schema.RECONCILE_RESULTS_ITEMS (
+    invoice_id VARCHAR,
+    product_name VARCHAR,
+    reconciliation_status VARCHAR,
+    item_mismatch_details VARIANT,
+    review_status VARCHAR,
+    last_reconciled_timestamp TIMESTAMP_NTZ,
+    reviewed_by VARCHAR,
+    reviewed_timestamp TIMESTAMP_NTZ,
+    corrected_invoice_number VARCHAR,
+    notes VARCHAR,
+    line_instance_number NUMBER,
+    quantity NUMBER,            
+    unit_price DECIMAL(12,2),
+    total_price DECIMAL(12,2)
+);
+
+-- Redefine the target table to capture specific column discrepancies
+CREATE OR REPLACE TABLE doc_ai_qs_db.doc_ai_schema.RECONCILE_RESULTS_TOTALS (
+    invoice_id VARCHAR,
+    reconciliation_status VARCHAR,
+    item_mismatch_details VARIANT,
+    review_status VARCHAR,
+    last_reconciled_timestamp TIMESTAMP_NTZ,
+    reviewed_by VARCHAR,
+    reviewed_timestamp TIMESTAMP_NTZ,
+    corrected_invoice_number VARCHAR,
+    notes VARCHAR,
+    invoice_date DATE,
+    subtotal DECIMAL(10,2),
+    tax DECIMAL(10,2),
+    total DECIMAL(10,2)
+    
+);
+
+ -- Gold table for corrected transaction items
+CREATE OR REPLACE TABLE doc_ai_qs_db.doc_ai_schema.GOLD_INVOICE_ITEMS (
+    invoice_id VARCHAR,
+    product_name VARCHAR,
+    quantity NUMBER, -- Assuming numeric type
+    unit_price DECIMAL(10,2), -- Assuming decimal for currency
+    total_price DECIMAL(10,2), -- Assuming decimal for currency
+    reviewed_by VARCHAR,
+    reviewed_timestamp TIMESTAMP_NTZ,
+    notes VARCHAR, -- Link to notes in silver or separate notes field
+    line_instance_number NUMBER
+);
+
+-- Gold table for corrected transaction totals
+CREATE OR REPLACE TABLE doc_ai_qs_db.doc_ai_schema.GOLD_INVOICE_TOTALS (
+    invoice_id VARCHAR,
+    invoice_date DATE, -- Assuming DATE type
+    subtotal DECIMAL(10,2), -- Assuming decimal for currency
+    tax DECIMAL(10,2), -- Assuming decimal for currency
+    total DECIMAL(10,2), -- Assuming decimal for currency
+    reviewed_by VARCHAR,
+    reviewed_timestamp TIMESTAMP_NTZ,
+    notes VARCHAR -- Link to notes in silver or separate notes field
+    -- line_instance_number NUMBER
+);
+
+-- CREATE A STREAM TO MONITOR THE Bronze db table for new items to pass to our reconciliation task
+CREATE OR REPLACE STREAM doc_ai_qs_db.doc_ai_schema.BRONZE_DB_STREAM 
+ON TABLE doc_ai_qs_db.doc_ai_schema.TRANSACT_TOTALS;
+
+CREATE OR REPLACE STREAM doc_ai_qs_db.doc_ai_schema.BRONZE_DOCAI_STREAM 
+ON TABLE doc_ai_qs_db.doc_ai_schema.DOCAI_INVOICE_TOTALS;
+
+-- CREATE A TASK TO RUN WHEN THE STREAM DETECTS NEW INFO IN OUR MAIN DB TABLE OR DOCAI TABLE
+create or replace task doc_ai_qs_db.doc_ai_schema.RECONCILE
+	warehouse=doc_ai_qs_wh
+	schedule='1 MINUTE'
+	when SYSTEM$STREAM_HAS_DATA('BRONZE_DB_STREAM') OR SYSTEM$STREAM_HAS_DATA('BRONZE_DOCAI_STREAM')
+	as BEGIN
+        CALL SP_RUN_ITEM_RECONCILIATION();
+        CALL SP_RUN_TOTALS_RECONCILIATION();
+    END;
+
+ALTER TASK doc_ai_qs_db.doc_ai_schema.RECONCILE RESUME;
 
 
-CALL SP_RUN_ITEM_RECONCILIATION();
-CALL SP_RUN_TOTALS_RECONCILIATION();
-SELECT * FROM doc_ai_qs_db.doc_ai_schema.RECONCILE_RESULTS_ITEMS ORDER BY INVOICE_ID, PRODUCT_NAME;
-SELECT * FROM doc_ai_qs_db.doc_ai_schema.GOLD_INVOICE_ITEMS;
+--Kick off our streams + tasks with data entering the original bronze db tables.
+-- Example INSERT statement for the first few rows
+INSERT INTO doc_ai_qs_db.doc_ai_schema.TRANSACT_ITEMS (invoice_id, product_name, quantity, unit_price, total_price) VALUES
+  ('6', 'Apples (kg)', 2, 16.82, 33.64),
+  ('6', 'Rice (kg)', 1, 8.65, 8.65),
+  ('6', 'Apples (kg)', 2, 12.43, 24.86),
+  ('6', 'Tomatoes (kg)', 4, 19.13, 19.13), -- Intentionally change the quantity from 1 -> 4
+  ('6', 'Bread (loaf)', 4, 1.04, 4.16),
+  ('9', 'Bread (loaf)', 5, 13.86, 69.3),
+  ('9', 'Eggs (dozen)', 3, 15.26, 45.78),
+  ('9', 'Bananas (kg)', 2, 2.7, 5.4),
+  ('9', 'Milk (ltr)', 2, 1.73, 3.46),
+  ('9', 'Eggs (dozen)', 2, 11.31, 22.62),
+  ('8', 'Bread (loaf)', 4, 18.93, 75.72),
+  ('8', 'Bread (loaf)', 3, 12.98, 38.94),
+  ('8', 'Potatoes (kg)', 1, 12.97, 12.97),
+  ('8', 'Cheese (pack)', 4, 5.19, 20.76),
+  ('8', 'Milk (ltr)', 1, 1.23, 1.23),
+  ('8', 'Milk (ltr)', 5, 18.5, 92.5),
+  ('8', 'Chicken (kg)', 4, 7.99, 28.01), -- Intentionally change the price from 31.96 -> 28.01
+  ('7', 'Apples (kg)', 3, 16.82, 50.46),
+  ('7', 'Eggs (dozen)', 2, 9.67, 19.34),
+  ('7', 'Apples (kg)', 4, 8.53, 34.12),
+  ('7', 'Eggs (dozen)', 1, 14.45, 14.45),
+  ('7', 'Bananas (kg)', 4, 10.23, 40.92),
+  ('5', 'Apples (kg)', 5, 1.78, 8.9),
+  ('5', 'Eggs (dozen)', 1, 5.61, 5.61),
+  ('5', 'Milk (ltr)', 2, 4.69, 9.38),
+  ('5', 'Cheese (pack)', 3, 7.82, 23.46),
+  ('5', 'Milk (ltr)', 3, 15.0, 45.0),
+  ('5', 'Tomatoes (kg)', 1, 18.01, 18.01),
+  ('4', 'Tomatoes (kg)', 5, 9.59, 47.95),
+  ('4', 'Apples (kg)', 4, 1.15, 4.6),
+  ('4', 'Milk (ltr)', 3, 18.4, 55.2),
+  ('4', 'Apples (kg)', 2, 4.38, 8.76),
+  ('4', 'Eggs (dozen)', 3, 1.24, 3.72),
+  ('3', 'Chicken (kg)', 1, 7.22, 7.22),
+  ('3', 'Potatoes (kg)', 4, 6.35, 25.4),
+  ('3', 'Apples (kg)', 3, 17.22, 51.66),
+  ('3', 'Potatoes (kg)', 3, 12.06, 36.18),
+  ('3', 'Bananas (kg)', 4, 3.55, 14.2),
+  ('3', 'Tomatoes (kg)', 1, 10.56, 10.56),
+  ('1', 'Bread (loaf)', 2, 16.16, 32.32),
+  ('1', 'Milk (gal)', 1, 16.53, 16.53), -- Intentionally change the name from Milk (ltr) -> Milk (gal)
+  ('1', 'Bread (loaf)', 4, 12.09, 48.36),
+  ('1', 'Tomatoes (kg)', 2, 8.45, 16.9),
+  ('1', 'Milk (ltr)', 1, 10.58, 10.58),
+  ('1', 'Eggs (dozen)', 2, 1.76, 3.52),
+  ('1', 'Chicken (kg)', 3, 17.5, 52.5),
+  ('10', 'Bread (loaf)', 4, 12.32, 49.28),
+  ('10', 'Cheese (pack)', 3, 16.6, 49.8),
+  ('10', 'Chicken (kg)', 4.5, 14.75, 59.0), -- Intentionally change the quantity from 4 -> 4.5
+  ('10', 'Cheese (pack)', 2, 3.72, 7.44), 
+  ('10', 'Rice (kg)', 3, 4.75, 14.25),
+  ('10', 'Potatoes (kg)', 5, 1.13, 5.65),
+  ('10', 'Potatoes (kg)', 2, 12.36, 24.72),
+  ('10', 'Rice (kg)', 5, 17.54, 87.7);
+    
 
-SELECT * FROM doc_ai_qs_db.doc_ai_schema.RECONCILE_RESULTS_TOTALS ORDER BY INVOICE_ID;
-SELECT * FROM doc_ai_qs_db.doc_ai_schema.GOLD_INVOICE_TOTALS;
+-- Example INSERT statement for the first few rows
+INSERT INTO doc_ai_qs_db.doc_ai_schema.TRANSACT_TOTALS (invoice_id, invoice_date, subtotal, tax, total) VALUES
+  ('6', '2025-04-09', 90.44, 9.04, 99.48),
+  ('9', '2025-02-24', 146.56, 14.66, 161.22),
+  ('8', '2025-04-25', 274.08, 27.41, 301.49),
+  ('7', '2025-02-04', 159.29, 15.93, 175.22),
+  ('5', '2025-03-10', 110.36, 11.04, 121.40),
+  ('4', '2025-01-13', 120.23, 12.02, 155.23), -- Intentionally change the grand total from 132.25 -> 155.23
+  ('3', '2025-01-12', 145.22, 20.55, 159.74), -- Intentionally change the tax from 14.52 -> 20.55
+  ('1', '2025-04-16', 180.71, 18.07, 198.78),
+  ('10', '2025-04-01', 297.84, 29.78, 327.62);
