@@ -15,7 +15,6 @@ STAGE_NAME = "DOC_AI_STAGE"
 
 SILVER_ITEMS_TABLE = f"{DB_NAME}.{SCHEMA_NAME}.RECONCILE_RESULTS_ITEMS"
 SILVER_TOTALS_TABLE = f"{DB_NAME}.{SCHEMA_NAME}.RECONCILE_RESULTS_TOTALS"
-
 BRONZE_TRANSACT_ITEMS_TABLE = f"{DB_NAME}.{SCHEMA_NAME}.TRANSACT_ITEMS"
 BRONZE_TRANSACT_TOTALS_TABLE = f"{DB_NAME}.{SCHEMA_NAME}.TRANSACT_TOTALS"
 BRONZE_DOCAI_ITEMS_TABLE = f"{DB_NAME}.{SCHEMA_NAME}.DOCAI_INVOICE_ITEMS"
@@ -78,6 +77,104 @@ def next_pdf_page():
         st.session_state['pdf_doc'] is not None and
         st.session_state['pdf_page'] < len(st.session_state['pdf_doc']) - 1):
         st.session_state['pdf_page'] += 1
+        
+def get_invoice_reconciliation_metrics(session: session) -> dict | None:
+
+    # Define the database and schema for clarity
+    db_name = "doc_ai_qs_db"
+    schema_name = "doc_ai_schema"
+    transact_table = f"{db_name}.{schema_name}.TRANSACT_TOTALS"
+    gold_totals_table = f"{db_name}.{schema_name}.GOLD_INVOICE_TOTALS"
+    gold_items_table = f"{db_name}.{schema_name}.GOLD_INVOICE_ITEMS"
+
+    # Construct the single SQL query using Common Table Expressions (CTEs) for clarity
+    # and conditional aggregation.
+    sql_query = f"""
+    SELECT
+        -- 1) Extract unique invoice count and total sum from TRANSACT_TOTALS
+        COUNT(DISTINCT tt.invoice_id) AS total_invoice_count,
+        SUM(tt.total) AS grand_total_amount,
+
+        -- 2 & 3) Determine presence in both GOLD tables and aggregate conditionally
+        COUNT(DISTINCT CASE
+                        WHEN EXISTS (SELECT 1 FROM {gold_totals_table} git WHERE git.invoice_id = tt.invoice_id)
+                         AND EXISTS (SELECT 1 FROM {gold_items_table} gii WHERE gii.invoice_id = tt.invoice_id)
+                        THEN tt.invoice_id -- Count distinct reconciled invoice IDs
+                        ELSE NULL
+                    END) AS reconciled_invoice_count,
+        SUM(CASE
+                WHEN EXISTS (SELECT 1 FROM {gold_totals_table} git WHERE git.invoice_id = tt.invoice_id)
+                 AND EXISTS (SELECT 1 FROM {gold_items_table} gii WHERE gii.invoice_id = tt.invoice_id)
+                THEN tt.total -- Sum total only if reconciled
+                ELSE 0 -- Contribute 0 to the sum if not reconciled
+            END) AS total_reconciled_amount
+    FROM
+        {transact_table} AS tt;
+    """
+
+    try:
+        st.write("Executing Reconciliation Query:")
+        # st.code(sql_query, language='sql')
+
+        # Execute the query using the provided session object
+        # .collect() fetches all results (in this case, just one row)
+        result = session.sql(sql_query).collect()
+
+        if not result:
+            st.warning(f"No data found in the source table: {transact_table}")
+            return None
+
+        # result is a list containing one Snowpark Row object
+        row = result[0]
+
+        # Extract values using the aliases defined in the SQL query
+        total_invoices = row['TOTAL_INVOICE_COUNT']
+        grand_total = row['GRAND_TOTAL_AMOUNT']
+        reconciled_invoices = row['RECONCILED_INVOICE_COUNT']
+        total_reconciled = row['TOTAL_RECONCILED_AMOUNT']
+
+        # Handle potential None values if SUM results in NULL (e.g., empty table)
+        # Although COUNT should return 0, SUM might return NULL.
+        grand_total = grand_total or 0.0
+        total_reconciled = total_reconciled or 0.0
+        total_invoices = total_invoices or 0
+        reconciled_invoices = reconciled_invoices or 0
+
+
+        # 4) Calculate ratios, handling potential division by zero
+        reconciled_invoice_ratio = (float(reconciled_invoices) / float(total_invoices)) if total_invoices > 0 else 0.0
+        reconciled_amount_ratio = (float(total_reconciled) / float(grand_total)) if grand_total != 0 else 0.0 # Use != 0 for float comparison robustness
+
+        metrics = {
+            'total_invoice_count': int(total_invoices), # Ensure integer count
+            'grand_total_amount': float(grand_total),
+            'reconciled_invoice_count': int(reconciled_invoices), # Ensure integer count
+            'total_reconciled_amount': float(total_reconciled),
+            'reconciled_invoice_ratio': float(reconciled_invoice_ratio),
+            'reconciled_amount_ratio': float(reconciled_amount_ratio)
+        }
+        return metrics
+
+    except Exception as e:
+        st.error(f"Snowflake SQL Error during reconciliation: {e}")
+        return None
+    except ZeroDivisionError:
+         # This case is handled by the conditional ratio calculation, but added for completeness
+         st.error("Division by zero encountered, likely no invoices or zero total amount found.")
+         # Return zeros or specific error structure if needed
+         return {
+            'total_invoice_count': 0,
+            'grand_total_amount': 0.0,
+            'reconciled_invoice_count': 0,
+            'total_reconciled_amount': 0.0,
+            'reconciled_invoice_ratio': 0.0,
+            'reconciled_amount_ratio': 0.0
+        }
+    except Exception as e:
+        st.error(f"An unexpected error occurred during reconciliation: {e}")
+        return None
+
+
 
 # --- Helper Functions ---
 @st.cache_data(ttl=600) # Cache data for 10 minutes
@@ -125,6 +222,41 @@ def load_bronze_data(invoice_id):
 # --- Streamlit App UI ---
 st.title("🛒 Instacart Invoice Reconciliation")
 st.markdown(f"Connected as user: **{CURRENT_USER}**")
+
+# --- Section 0: Display Totals
+#run_reconciliation(session)
+with st.spinner("Loading reconciliation metrics..."):
+    reconciliation_data = get_invoice_reconciliation_metrics(session)
+
+# --- Display results ---
+if reconciliation_data:
+    st.success("Metrics displayed below (updated automatically).")
+
+    st.subheader("Reconciliation Ratios")
+    col1, col2 = st.columns(2)
+    col1.metric(
+        label="Reconciled Invoices (Count Ratio)",
+        value=f"{reconciliation_data['reconciled_invoice_ratio']:.2%}",
+        help=f"Percentage of unique invoices from TRANSACT_TOTALS found in both GOLD tables. ({reconciliation_data['reconciled_invoice_count']}/{reconciliation_data['total_invoice_count']})"
+    )
+    col2.metric(
+        label="Reconciled Amount (Value Ratio)",
+        value=f"{reconciliation_data['reconciled_amount_ratio']:.2%}",
+        help=f"Percentage of total amount from TRANSACT_TOTALS that corresponds to reconciled invoices. (${reconciliation_data['total_reconciled_amount']:,.2f} / ${reconciliation_data['grand_total_amount']:,.2f})"
+    )
+
+    st.subheader("Detailed Numbers")
+    df_metrics = pd.DataFrame([
+         {"Metric": "Total Unique Invoices", "Value": reconciliation_data['total_invoice_count']},
+         {"Metric": "Reconciled Invoices", "Value": reconciliation_data['reconciled_invoice_count']},
+         {"Metric": "Grand Total Amount ($)", "Value": f"{reconciliation_data['grand_total_amount']:,.2f}"},
+         {"Metric": "Total Reconciled Amount ($)", "Value": f"{reconciliation_data['total_reconciled_amount']:,.2f}"},
+    ]).set_index("Metric")
+    st.dataframe(df_metrics)
+
+else:
+    # Error messages are now mostly handled within the cached function call
+    st.warning("Could not retrieve or calculate reconciliation metrics. Check logs above if any.")
 
 # --- Section 1: Display Silver Tables & Select Invoice ---
 st.header("1. Invoices Awaiting Review")
@@ -320,7 +452,6 @@ if selected_invoice_id:
 
         # Add fields for notes and corrected invoice number (if applicable)
         review_notes = st.text_area("Review Notes / Comments:", key="review_notes")
-        corrected_invoice_num = st.text_input("Corrected Invoice Number (if applicable):", key="corrected_inv_num") # Optional
 
         submit_button = st.button("✅ Submit Review and Save Corrections to Gold Layer")
 
@@ -402,8 +533,7 @@ if selected_invoice_id:
                     SET REVIEW_STATUS = 'Reviewed',
                         REVIEWED_BY = '{CURRENT_USER}',
                         REVIEWED_TIMESTAMP = '{current_ts.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}', -- Format for TIMESTAMP_NTZ
-                        NOTES = '{review_notes.replace("'", "''")}', -- Escape single quotes
-                        CORRECTED_INVOICE_NUMBER = '{corrected_invoice_num.replace("'", "''")}' -- Optional
+                        NOTES = '{review_notes.replace("'", "''")}' -- Escape single quotes
                     WHERE INVOICE_ID = '{selected_invoice_id}';
                     """
                     session.sql(update_query).collect() # Use collect() to execute the update
@@ -413,8 +543,7 @@ if selected_invoice_id:
                     SET REVIEW_STATUS = 'Reviewed',
                         REVIEWED_BY = '{CURRENT_USER}',
                         REVIEWED_TIMESTAMP = '{current_ts.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}',
-                        NOTES = '{review_notes.replace("'", "''")}',
-                        CORRECTED_INVOICE_NUMBER = '{corrected_invoice_num.replace("'", "''")}' -- Optional
+                        NOTES = '{review_notes.replace("'", "''")}'
                     WHERE INVOICE_ID = '{selected_invoice_id}';
                     """
                     session.sql(update_query).collect() # Use collect() to execute the update
