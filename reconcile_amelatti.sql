@@ -4,17 +4,6 @@ USE WAREHOUSE doc_ai_qs_wh;
 USE DATABASE doc_ai_qs_db;
 USE SCHEMA doc_ai_schema;
 
-
-CALL SP_RUN_ITEM_RECONCILIATION();
-CALL SP_RUN_TOTALS_RECONCILIATION();
-SELECT * FROM doc_ai_qs_db.doc_ai_schema.RECONCILE_RESULTS_ITEMS ORDER BY INVOICE_ID, PRODUCT_NAME;
-SELECT * FROM doc_ai_qs_db.doc_ai_schema.GOLD_INVOICE_ITEMS ORDER BY INVOICE_ID, PRODUCT_NAME;
-
-SELECT * FROM doc_ai_qs_db.doc_ai_schema.RECONCILE_RESULTS_TOTALS ORDER BY INVOICE_ID;
-SELECT * FROM doc_ai_qs_db.doc_ai_schema.GOLD_INVOICE_TOTALS ORDER BY INVOICE_ID;
-
-
-
 CREATE OR REPLACE PROCEDURE doc_ai_qs_db.doc_ai_schema.SP_RUN_ITEM_RECONCILIATION()
 RETURNS VARCHAR
 LANGUAGE SQL
@@ -126,7 +115,7 @@ BEGIN
       FROM JoinedItems
       WHERE NOT exists_in_transact AND exists_in_docai
     ),
-    -- << NEW >> CTE to identify items that match perfectly
+    -- CTE to identify items that match perfectly
     MatchedItems AS (
       SELECT
         invoice_id,
@@ -145,7 +134,7 @@ BEGIN
         AND ti_unit_price IS NOT DISTINCT FROM ci_unit_price
         AND ti_total_price IS NOT DISTINCT FROM ci_total_price
     ),
-    -- << NEW >> Combine Discrepancies and Matched Items for the MERGE source
+    -- Combine Discrepancies and Matched Items for the MERGE source
     ReconciliationSource AS (
       SELECT * FROM Discrepancies
       UNION ALL
@@ -154,12 +143,12 @@ BEGIN
     -- Select final source for merge
     SELECT * FROM ReconciliationSource
   ) AS source
-  -- << MODIFIED >> Use invoice_id, product_name, and line_instance_number as the unique key for merge
+  -- Use invoice_id, product_name, and line_instance_number as the unique key for merge
   ON target.invoice_id = source.invoice_id
      AND target.product_name IS NOT DISTINCT FROM source.product_name -- Handle potential NULL product names
      AND target.line_instance_number = source.line_instance_number
 
-  -- << MODIFIED >> Action when a record for this item instance already exists
+  -- Action when a record for this item instance already exists
   WHEN MATCHED THEN UPDATE SET
     target.reconciliation_status = source.reconciliation_status,
     target.item_mismatch_details = source.item_mismatch_details, -- Update details if discrepancy changes or becomes null if matched
@@ -177,19 +166,16 @@ BEGIN
     target.reviewed_timestamp = CASE WHEN target.review_status = 'Reviewed' THEN target.reviewed_timestamp 
                                 WHEN source.reconciliation_status != 'auto-reconciled' THEN NULL
                                 ELSE target.reviewed_timestamp END,
-    target.corrected_invoice_number = CASE WHEN target.review_status = 'Reviewed' THEN target.corrected_invoice_number
-                                    WHEN source.reconciliation_status != 'auto-reconciled' THEN NULL                                
-                                    ELSE target.corrected_invoice_number END,
     target.notes =  CASE WHEN target.review_status = 'Reviewed' THEN target.notes
                     WHEN source.reconciliation_status != 'auto-reconciled' THEN NULL 
                     ELSE target.notes END,
-    -- << NEW >> Update reconciled values if present (will be null for discrepancies)
+    -- Update reconciled values if present (will be null for discrepancies)
     target.quantity = source.quantity,
     target.unit_price = source.unit_price,
     target.total_price = source.total_price
 
 
-  -- << MODIFIED >> Action when a new discrepancy or auto-reconciled item is found
+  -- Action when a new discrepancy or auto-reconciled item is found
   WHEN NOT MATCHED THEN INSERT (
     invoice_id,
     product_name,
@@ -198,9 +184,9 @@ BEGIN
     item_mismatch_details, -- Will be NULL for auto-reconciled
     review_status,         -- 'Pending Review' or 'Auto-Reconciled'
     last_reconciled_timestamp,
-    quantity,              -- << NEW >> Store reconciled values if available
-    unit_price,            -- << NEW >> Store reconciled values if available
-    total_price            -- << NEW >> Store reconciled values if available
+    quantity,              -- Store reconciled values if available
+    unit_price,            -- Store reconciled values if available
+    total_price            -- Store reconciled values if available
     -- reviewed_by, reviewed_timestamp, notes, etc remain NULL initially
   ) VALUES (
     source.invoice_id,
@@ -215,7 +201,7 @@ BEGIN
     source.total_price     -- Will be NULL for discrepancies
   );
 
-  -- << NEW SECTION >> Merge fully auto-reconciled invoices into the Gold table
+  -- Merge fully auto-reconciled invoices into the Gold table
   -- Step 1: Identify invoices where ALL items are auto-reconciled in the results table
   -- Step 2: Select the item data for these invoices (using NumberedDocaiItems CTE)
   -- Step 3: Merge into the Gold table
@@ -255,7 +241,7 @@ BEGIN
       )
       SELECT * FROM ReadyForGold
   ) AS gold_source
-  -- << MODIFIED >> Match on invoice, product, AND line instance number for uniqueness in Gold table
+  -- Match on invoice, product, AND line instance number for uniqueness in Gold table
   -- ASSUMPTION: GOLD_INVOICE_ITEMS has a line_instance_number column (or similar)
   ON gold_target.invoice_id = gold_source.invoice_id
      AND gold_target.product_name IS NOT DISTINCT FROM gold_source.product_name
@@ -280,7 +266,7 @@ BEGIN
       reviewed_by,
       reviewed_timestamp,
       notes,
-      line_instance_number -- << NEW >> Insert the line instance number if the column exists
+      line_instance_number -- Insert the line instance number if the column exists
   ) VALUES (
       gold_source.invoice_id,
       gold_source.product_name,
@@ -290,7 +276,7 @@ BEGIN
       gold_source.reviewed_by,
       gold_source.reviewed_timestamp,
       gold_source.notes,
-      gold_source.line_instance_number -- << NEW >> Value for the line instance number
+      gold_source.line_instance_number -- Value for the line instance number
   );
 
   -- Optional: Clean up old records (consider adding line_instance_number to the check if added to target table)
@@ -496,11 +482,11 @@ BEGIN
 -- Select final source for merge
     SELECT DISTINCT * FROM ReconciliationSource
   ) AS source
-  -- << MODIFIED >> Use invoice_id, product_name, and line_instance_number as the unique key for merge
+  -- Use invoice_id, product_name, and line_instance_number as the unique key for merge
   ON target.invoice_id = source.invoice_id
      --AND target.invoice_date IS NOT DISTINCT FROM source.invoice_date -- Handle potential NULL product names
 
-  -- << MODIFIED >> Action when a record for this item instance already exists
+  -- Action when a record for this item instance already exists
   WHEN MATCHED THEN UPDATE SET
     target.reconciliation_status = source.reconciliation_status,
     target.item_mismatch_details = source.item_mismatch_details, -- Update details if discrepancy changes or becomes null if matched
@@ -518,18 +504,16 @@ BEGIN
     target.reviewed_timestamp = CASE WHEN target.review_status = 'Reviewed' THEN target.reviewed_timestamp
                         WHEN source.reconciliation_status != 'auto-reconciled' THEN NULL 
                         ELSE target.reviewed_timestamp END,
-    target.corrected_invoice_number = CASE WHEN target.review_status = 'Reviewed' THEN target.corrected_invoice_number
-                        WHEN source.reconciliation_status != 'auto-reconciled' THEN NULL ELSE target.corrected_invoice_number END,
     target.notes = CASE WHEN target.review_status = 'Reviewed' THEN target.notes
                         WHEN source.reconciliation_status != 'auto-reconciled' THEN NULL ELSE target.notes END,
-    -- << NEW >> Update reconciled values if present (will be null for discrepancies)
+    -- Update reconciled values if present (will be null for discrepancies)
     target.invoice_date = source.invoice_date,
     target.subtotal = source.subtotal,
     target.tax = source.tax,
     target.total = source.total
 
 
-  -- << MODIFIED >> Action when a new discrepancy or auto-reconciled item is found
+  -- Action when a new discrepancy or auto-reconciled item is found
   WHEN NOT MATCHED THEN INSERT (
     invoice_id,
     invoice_date,
@@ -537,9 +521,9 @@ BEGIN
     item_mismatch_details, -- Will be NULL for auto-reconciled
     review_status,         -- 'Pending Review' or 'Auto-Reconciled'
     last_reconciled_timestamp,
-    subtotal,              -- << NEW >> Store reconciled values if available
-    tax,            -- << NEW >> Store reconciled values if available
-    total            -- << NEW >> Store reconciled values if available
+    subtotal,              -- Store reconciled values if available
+    tax,            -- Store reconciled values if available
+    total            -- Store reconciled values if available
     -- reviewed_by, reviewed_timestamp, notes, etc remain NULL initially
   ) VALUES (
     source.invoice_id,
@@ -553,7 +537,7 @@ BEGIN
     source.total     -- Will be NULL for discrepancies
   );
 
-  -- << NEW SECTION >> Merge fully auto-reconciled invoices into the Gold table
+  -- Merge fully auto-reconciled invoices into the Gold table
   -- Step 1: Identify invoices where ALL items are auto-reconciled in the results table
   -- Step 2: Select the item data for these invoices (using NumberedDocaiItems CTE)
   -- Step 3: Merge into the Gold table
@@ -571,8 +555,7 @@ BEGIN
       -- Re-use NumberedDocaiItems or select directly if performance allows
       NumberedDocaiItems_ForGold AS (
           SELECT
-              ci.*,
-              --ROW_NUMBER() OVER (PARTITION BY ci.invoice_id ORDER BY ci.invoice_date, ci.subtotal, ci.tax, ci.total) as rn -- Use the EXACT SAME ORDER BY as before
+              ci.*
           FROM doc_ai_qs_db.doc_ai_schema.DOCAI_INVOICE_TOTALS ci
           -- Only select items for invoices identified as fully reconciled
           INNER JOIN FullyReconciledInvoices fri ON ci.invoice_id = fri.invoice_id
@@ -587,14 +570,11 @@ BEGIN
               ndi.total,
               'Auto-Reconciled' AS reviewed_by, -- Fixed value as per requirement
               :current_run_timestamp AS reviewed_timestamp, -- Use run timestamp
-              'Auto-Reconciled' AS notes,       -- Fixed value as per requirement
-              --ndi.rn AS line_instance_number     -- Include the unique line identifier
+              'Auto-Reconciled' AS notes       -- Fixed value as per requirement
           FROM NumberedDocaiItems_ForGold ndi
       )
       SELECT * FROM ReadyForGold
   ) AS gold_source
-  -- << MODIFIED >>
-  -- ASSUMPTION: GOLD_INVOICE_TOTALS
   ON gold_target.invoice_id = gold_source.invoice_id
 
   -- Action if the auto-reconciled item already exists in Gold (e.g., re-processed)
@@ -617,7 +597,6 @@ BEGIN
       reviewed_by,
       reviewed_timestamp,
       notes
-      --line_instance_number -- << NEW >> Insert the line instance number if the column exists
   ) VALUES (
       gold_source.invoice_id,
       gold_source.invoice_date,
@@ -627,7 +606,6 @@ BEGIN
       gold_source.reviewed_by,
       gold_source.reviewed_timestamp,
       gold_source.notes
-      --gold_source.line_instance_number -- << NEW >> Value for the line instance number
   );
 
   -- Optional: Clean up old records (consider adding line_instance_number to the check if added to target table)
@@ -653,7 +631,6 @@ CREATE OR REPLACE TABLE doc_ai_qs_db.doc_ai_schema.RECONCILE_RESULTS_ITEMS (
     last_reconciled_timestamp TIMESTAMP_NTZ,
     reviewed_by VARCHAR,
     reviewed_timestamp TIMESTAMP_NTZ,
-    corrected_invoice_number VARCHAR,
     notes VARCHAR,
     line_instance_number NUMBER,
     quantity NUMBER,            
@@ -670,7 +647,6 @@ CREATE OR REPLACE TABLE doc_ai_qs_db.doc_ai_schema.RECONCILE_RESULTS_TOTALS (
     last_reconciled_timestamp TIMESTAMP_NTZ,
     reviewed_by VARCHAR,
     reviewed_timestamp TIMESTAMP_NTZ,
-    corrected_invoice_number VARCHAR,
     notes VARCHAR,
     invoice_date DATE,
     subtotal DECIMAL(10,2),
@@ -720,10 +696,12 @@ create or replace task doc_ai_qs_db.doc_ai_schema.RECONCILE
 	as BEGIN
         CALL SP_RUN_ITEM_RECONCILIATION();
         CALL SP_RUN_TOTALS_RECONCILIATION();
+        -- Statements to empty the streams of processed rows.
+        CREATE TEMPORARY TABLE table1 AS SELECT * FROM doc_ai_qs_db.doc_ai_schema.BRONZE_DB_STREAM WHERE 0 = 1;
+        CREATE TEMPORARY TABLE table2 AS SELECT * FROM doc_ai_qs_db.doc_ai_schema.BRONZE_DOCAI_STREAM WHERE 0 = 1;
     END;
 
 ALTER TASK doc_ai_qs_db.doc_ai_schema.RECONCILE RESUME;
-
 
 --Kick off our streams + tasks with data entering the original bronze db tables.
 -- Example INSERT statement for the first few rows
