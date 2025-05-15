@@ -184,11 +184,11 @@ def load_silver_data(status_filter='Pending Review'):
         # Use UNION ALL to get all invoice IDs needing review from both tables
         # Select distinct invoice IDs to avoid duplicates if an invoice has issues in both items and totals
         query = f"""
-        SELECT DISTINCT invoice_id, reconciliation_status, review_status, last_reconciled_timestamp
+        SELECT DISTINCT invoice_id, review_status, last_reconciled_timestamp
         FROM {SILVER_ITEMS_TABLE}
         WHERE review_status = '{status_filter}' OR '{status_filter}' = 'All'
         UNION
-        SELECT DISTINCT invoice_id, reconciliation_status, review_status, last_reconciled_timestamp
+        SELECT DISTINCT invoice_id, review_status, last_reconciled_timestamp
         FROM {SILVER_TOTALS_TABLE}
         WHERE review_status = '{status_filter}' OR '{status_filter}' = 'All'
         ORDER BY last_reconciled_timestamp DESC
@@ -248,7 +248,7 @@ if reconciliation_data:
     st.subheader("Detailed Numbers")
     df_metrics = pd.DataFrame([
          {"Metric": "Total Unique Invoices", "Value": reconciliation_data['total_invoice_count']},
-         {"Metric": "Reconciled Invoices", "Value": reconciliation_data['reconciled_invoice_count']},
+         {"Metric": "Fully Reconciled Invoices", "Value": reconciliation_data['reconciled_invoice_count']},
          {"Metric": "Grand Total Amount ($)", "Value": f"{reconciliation_data['grand_total_amount']:,.2f}"},
          {"Metric": "Total Reconciled Amount ($)", "Value": f"{reconciliation_data['total_reconciled_amount']:,.2f}"},
     ]).set_index("Metric")
@@ -261,7 +261,7 @@ else:
 # --- Section 1: Display Silver Tables & Select Invoice ---
 st.header("1. Invoices Awaiting Review")
 
-review_status_options = ['Pending Review', 'Reviewed', 'Auto-Reconciled']
+review_status_options = ['Pending Review', 'Reviewed', 'Auto-reconciled']
 selected_status = st.selectbox("Filter by Review Status:", review_status_options, index=0) # Default to 'Pending Review'
 
 # Load distinct invoice IDs based on filter
@@ -478,14 +478,13 @@ if selected_invoice_id:
                         gold_items_df['INVOICE_ID'] = selected_invoice_id
                         gold_items_df['REVIEWED_BY'] = CURRENT_USER
                         gold_items_df['REVIEWED_TIMESTAMP'] = current_ts
-                        # Add original DOCAI values if needed/available in your schema
-                        # gold_items_df['original_docai_...'] = ...
                         gold_items_df['NOTES'] = review_notes # Add notes
-                        gold_items_df['LINE_INSTANCE_NUMBER'] = gold_items_df.sort_values(
-                            ['INVOICE_ID', 'PRODUCT_NAME', 'QUANTITY', 'UNIT_PRICE', 'TOTAL_PRICE']
-                        ).groupby(
-                            ['INVOICE_ID', 'PRODUCT_NAME']
-                        ).cumcount() + 1
+                        ###
+                        # gold_items_df['LINE_INSTANCE_NUMBER'] = gold_items_df.sort_values(
+                        #     ['INVOICE_ID', 'PRODUCT_NAME', 'QUANTITY', 'UNIT_PRICE', 'TOTAL_PRICE']
+                        # ).groupby(
+                        #     ['INVOICE_ID', 'PRODUCT_NAME']
+                        # ).cumcount() + 1
 
                          # Convert Pandas DataFrame to Snowpark DataFrame for writing
                         snowpark_gold_items = session.create_dataframe(gold_items_df)

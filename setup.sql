@@ -34,7 +34,7 @@ CREATE STAGE doc_ai_qs_db.doc_ai_schema.doc_ai_stage
 CREATE SCHEMA doc_ai_qs_db.streamlit_schema;
 
 -- TABLE FOR THE STREAMLIT APP
-CREATE OR REPLACE TABLE doc_ai_qs_db.doc_ai_schema.CO_BRANDING_AGREEMENTS_VERIFIED
+CREATE OR REPLACE TABLE doc_ai_qs_db.doc_ai_schema.CO_INVOICES_VERIFIED
 (
     file_name string
     , snowflake_file_url string
