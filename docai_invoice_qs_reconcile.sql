@@ -455,7 +455,7 @@ CREATE OR REPLACE TABLE doc_ai_qs_db.doc_ai_schema.GOLD_INVOICE_ITEMS (
     total_price DECIMAL(10,2), -- Assuming decimal for currency
     reviewed_by VARCHAR,
     reviewed_timestamp TIMESTAMP_NTZ,
-    notes VARCHAR -- Link to notes in silver or separate notes field
+    notes VARCHAR
 
 );
 
@@ -468,7 +468,7 @@ CREATE OR REPLACE TABLE doc_ai_qs_db.doc_ai_schema.GOLD_INVOICE_TOTALS (
     total DECIMAL(10,2), -- Assuming decimal for currency
     reviewed_by VARCHAR,
     reviewed_timestamp TIMESTAMP_NTZ,
-    notes VARCHAR -- Link to notes in silver or separate notes field
+    notes VARCHAR
 
 );
 

@@ -14,8 +14,8 @@ DB_NAME = "doc_ai_qs_db"
 SCHEMA_NAME = "doc_ai_schema"
 STAGE_NAME = "DOC_AI_STAGE"
 
-SILVER_ITEMS_TABLE = f"{DB_NAME}.{SCHEMA_NAME}.RECONCILE_RESULTS_ITEMS"
-SILVER_TOTALS_TABLE = f"{DB_NAME}.{SCHEMA_NAME}.RECONCILE_RESULTS_TOTALS"
+RECONCILE_ITEMS_TABLE = f"{DB_NAME}.{SCHEMA_NAME}.RECONCILE_RESULTS_ITEMS"
+RECONCILE_TOTALS_TABLE = f"{DB_NAME}.{SCHEMA_NAME}.RECONCILE_RESULTS_TOTALS"
 BRONZE_TRANSACT_ITEMS_TABLE = f"{DB_NAME}.{SCHEMA_NAME}.TRANSACT_ITEMS"
 BRONZE_TRANSACT_TOTALS_TABLE = f"{DB_NAME}.{SCHEMA_NAME}.TRANSACT_TOTALS"
 BRONZE_DOCAI_ITEMS_TABLE = f"{DB_NAME}.{SCHEMA_NAME}.DOCAI_INVOICE_ITEMS"
@@ -103,7 +103,7 @@ def next_pdf_page():
         st.session_state['pdf_page'] < len(st.session_state['pdf_doc']) - 1):
         st.session_state['pdf_page'] += 1
 
-def summarize_mismatch_details(active_session, silver_items_details_df, silver_totals_details_df, selected_invoice_id):
+def summarize_mismatch_details(active_session, reconcile_items_details_df, reconcile_totals_details_df, selected_invoice_id):
     """
     Summarizes item mismatch details from two DataFrames for a selected invoice ID
     using Snowflake Cortex.
@@ -112,48 +112,20 @@ def summarize_mismatch_details(active_session, silver_items_details_df, silver_t
         session = active_session # Get active Snowpark session
 
         # Filter DataFrames for the selected invoice ID
-        # filtered_items_df = silver_items_details_df.filter(silver_items_details_df["INVOICE_ID"] == "2010")
         try:
-            item_mismatch_details = silver_items_details_df["ITEM_MISMATCH_DETAILS"][silver_items_details_df["INVOICE_ID"] == selected_invoice_id].iloc[0]
+            item_mismatch_details = reconcile_items_details_df["ITEM_MISMATCH_DETAILS"][reconcile_items_details_df["INVOICE_ID"] == selected_invoice_id].iloc[0]
         except: 
             item_mismatch_details = ""
         try:
-            total_mismatch_details = silver_totals_details_df["ITEM_MISMATCH_DETAILS"][silver_totals_details_df["INVOICE_ID"] == selected_invoice_id].iloc[0]
+            total_mismatch_details = reconcile_totals_details_df["ITEM_MISMATCH_DETAILS"][reconcile_totals_details_df["INVOICE_ID"] == selected_invoice_id].iloc[0]
         except: 
             total_mismatch_details = ""
-
-        # # Collect mismatch details from the 'ITEM_MISMATCH_DETAILS' column
-        # # Ensure the column exists and handle cases where it might be missing or empty
-        # item_mismatch_details_list = []
-        # if "ITEM_MISMATCH_DETAILS" in filtered_items_df.columns:
-        #     item_mismatch_details_list = [
-        #         row["ITEM_MISMATCH_DETAILS"]
-        #         for row in filtered_items_df.select("ITEM_MISMATCH_DETAILS").collect()
-        #         if row["ITEM_MISMATCH_DETAILS"] and str(row["ITEM_MISMATCH_DETAILS"]).strip()
-        #     ]
-
-        # total_mismatch_details_list = []
-        # if "ITEM_MISMATCH_DETAILS" in filtered_totals_df.columns: # Assuming the column name is the same
-        #     total_mismatch_details_list = [
-        #         row["ITEM_MISMATCH_DETAILS"]
-        #         for row in filtered_totals_df.select("ITEM_MISMATCH_DETAILS").collect()
-        #         if row["ITEM_MISMATCH_DETAILS"] and str(row["ITEM_MISMATCH_DETAILS"]).strip()
-        #     ]
-        # elif "TOTALS_MISMATCH_DETAILS" in filtered_totals_df.columns: # Or a different relevant column
-        #      total_mismatch_details_list = [
-        #         row["TOTALS_MISMATCH_DETAILS"]
-        #         for row in filtered_totals_df.select("TOTALS_MISMATCH_DETAILS").collect()
-        #         if row["TOTALS_MISMATCH_DETAILS"] and str(row["TOTALS_MISMATCH_DETAILS"]).strip()
-        #     ]
-
 
         all_mismatch_details = item_mismatch_details + total_mismatch_details
 
         if not all_mismatch_details:
             return f"No item mismatch details found for Invoice ID: {selected_invoice_id}."
 
-        # Combine details into a single context string
-        #context = "\n".join(filter(None, all_mismatch_details)) # Filter out any None or empty strings
 
         # Construct the prompt for Snowflake Cortex
         prompt = f"""
@@ -292,30 +264,30 @@ def get_invoice_reconciliation_metrics(session: session) -> dict | None:
 
 # --- Helper Functions ---
 @st.cache_data(ttl=600) # Cache data for 10 minutes
-def load_silver_data(status_filter='Pending Review'):
-    """Loads data from silver reconciliation tables, optionally filtering by review_status."""
+def load_reconcile_data(status_filter='Pending Review'):
+    """Loads data from reconciliation tables, optionally filtering by review_status."""
     try:
         # Use UNION ALL to get all invoice IDs needing review from both tables
         # Select distinct invoice IDs to avoid duplicates if an invoice has issues in both items and totals
         query = f"""
         SELECT DISTINCT invoice_id, review_status, last_reconciled_timestamp
-        FROM {SILVER_ITEMS_TABLE}
+        FROM {RECONCILE_ITEMS_TABLE}
         WHERE review_status = '{status_filter}' OR '{status_filter}' = 'All'
         UNION
         SELECT DISTINCT invoice_id, review_status, last_reconciled_timestamp
-        FROM {SILVER_TOTALS_TABLE}
+        FROM {RECONCILE_TOTALS_TABLE}
         WHERE review_status = '{status_filter}' OR '{status_filter}' = 'All'
         ORDER BY last_reconciled_timestamp DESC
         """
-        silver_df = session.sql(query).to_pandas()
+        reconcile_df = session.sql(query).to_pandas()
 
         # Also load full details for display later if needed (optional here, load on demand below)
-        silver_items_full_df = session.table(SILVER_ITEMS_TABLE).filter(col("review_status") == status_filter).to_pandas() if status_filter != 'All' else session.table(SILVER_ITEMS_TABLE).to_pandas()
-        silver_totals_full_df = session.table(SILVER_TOTALS_TABLE).filter(col("review_status") == status_filter).to_pandas() if status_filter != 'All' else session.table(SILVER_TOTALS_TABLE).to_pandas()
+        reconcile_items_full_df = session.table(RECONCILE_ITEMS_TABLE).filter(col("review_status") == status_filter).to_pandas() if status_filter != 'All' else session.table(RECONCILE_ITEMS_TABLE).to_pandas()
+        reconcile_totals_full_df = session.table(RECONCILE_TOTALS_TABLE).filter(col("review_status") == status_filter).to_pandas() if status_filter != 'All' else session.table(RECONCILE_TOTALS_TABLE).to_pandas()
 
-        return silver_df, silver_items_full_df, silver_totals_full_df
+        return reconcile_df, reconcile_items_full_df, reconcile_totals_full_df
     except Exception as e:
-        st.error(f"Error loading Silver data: {e}")
+        st.error(f"Error loading reconcile data: {e}")
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame() # Return empty DataFrames on error
 
 def load_bronze_data(invoice_id):
@@ -372,14 +344,14 @@ else:
     # Error messages are now mostly handled within the cached function call
     st.warning("Could not retrieve or calculate reconciliation metrics. Check logs above if any.")
 
-# --- Section 1: Display Silver Tables & Select Invoice ---
+# --- Section 1: Display reconcile Tables & Select Invoice ---
 st.header("1. Invoices Awaiting Review")
 
 review_status_options = ['Pending Review', 'Reviewed', 'Auto-reconciled']
 selected_status = st.selectbox("Filter by Review Status:", review_status_options, index=0) # Default to 'Pending Review'
 
 # Load distinct invoice IDs based on filter
-invoices_to_review_df, silver_items_details_df, silver_totals_details_df = load_silver_data(selected_status)
+invoices_to_review_df, reconcile_items_details_df, reconcile_totals_details_df = load_reconcile_data(selected_status)
 
 if not invoices_to_review_df.empty:
     st.write(f"Found {len(invoices_to_review_df['INVOICE_ID'].unique())} unique invoices with totals or items status '{selected_status}'.")
@@ -393,12 +365,12 @@ if not invoices_to_review_df.empty:
         key="invoice_selector"
     )
 
-    # Display details from Silver tables for context (optional)
-    with st.expander("Show Silver Reconciliation Details for All Filtered Invoices"):
-         st.subheader("Silver - Item Reconciliation Details")
-         st.dataframe(silver_items_details_df, use_container_width=True)
-         st.subheader("Silver - Total Reconciliation Details")
-         st.dataframe(silver_totals_details_df, use_container_width=True)
+    # Display details from reconcile tables for context (optional)
+    with st.expander("Show Reconciliation Details for All Filtered Invoices"):
+         st.subheader("Item Reconciliation Details")
+         st.dataframe(reconcile_items_details_df, use_container_width=True)
+         st.subheader("Total Reconciliation Details")
+         st.dataframe(reconcile_totals_details_df, use_container_width=True)
 
 else:
     st.info(f"No invoices found with status '{selected_status}'.")
@@ -409,7 +381,7 @@ st.header("2. Review and Correct Invoice Data")
 
 if selected_invoice_id:
     st.subheader(f"Displaying Data for Invoice: `{selected_invoice_id}`")
-    mismatch_summary = summarize_mismatch_details(session, silver_items_details_df, silver_totals_details_df, selected_invoice_id)
+    mismatch_summary = summarize_mismatch_details(session, reconcile_items_details_df, reconcile_totals_details_df, selected_invoice_id)
     st.subheader(f"{mismatch_summary}")
     # Load data from Bronze layer
     bronze_data_dict = load_bronze_data(selected_invoice_id)
@@ -654,10 +626,10 @@ if selected_invoice_id:
                     snowpark_gold_totals.write.mode("append").save_as_table(GOLD_TOTALS_TABLE)
                     st.success(f"Successfully saved corrected totals to {GOLD_TOTALS_TABLE}")
 
-                    # --- Update Silver Tables Review Status ---
-                    st.write("Updating review status in Silver tables...")
+                    # --- Update reconcile Tables Review Status ---
+                    st.write("Updating review status in reconcile tables...")
                     update_query = f"""
-                    UPDATE {SILVER_ITEMS_TABLE}
+                    UPDATE {RECONCILE_ITEMS_TABLE}
                     SET REVIEW_STATUS = 'Reviewed',
                         REVIEWED_BY = '{CURRENT_USER}',
                         REVIEWED_TIMESTAMP = '{current_ts.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}', -- Format for TIMESTAMP_NTZ
@@ -667,7 +639,7 @@ if selected_invoice_id:
                     session.sql(update_query).collect() # Use collect() to execute the update
 
                     update_query = f"""
-                    UPDATE {SILVER_TOTALS_TABLE}
+                    UPDATE {RECONCILE_TOTALS_TABLE}
                     SET REVIEW_STATUS = 'Reviewed',
                         REVIEWED_BY = '{CURRENT_USER}',
                         REVIEWED_TIMESTAMP = '{current_ts.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}',
@@ -676,10 +648,10 @@ if selected_invoice_id:
                     """
                     session.sql(update_query).collect() # Use collect() to execute the update
 
-                    st.success(f"Successfully updated review status for invoice {selected_invoice_id} in Silver tables.")
+                    st.success(f"Successfully updated review status for invoice {selected_invoice_id} in reconcile tables.")
 
                     # --- Clear Cache and Rerun ---
-                    st.cache_data.clear() # Clear the cache to reflect updated silver status
+                    st.cache_data.clear() # Clear the cache to reflect updated reconcile status
                     # Clear edited state to avoid accidental resubmission? Maybe not needed with rerun.
                     # if 'edited_transact_items' in st.session_state: del st.session_state.edited_transact_items
                     # if 'edited_transact_totals' in st.session_state: del st.session_state.edited_transact_totals
