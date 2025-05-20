@@ -75,7 +75,7 @@ create or replace task doc_ai_qs_db.doc_ai_schema.DOCAI_EXTRACT
             size as file_size,
             last_modified,
             file_url as snowflake_file_url,
-            PARSE_JSON(DOC_AI_QS_DB.DOC_AI_SCHEMA.DOC_AI_QS_INVOICES2!PREDICT(get_presigned_url('@doc_ai_stage', RELATIVE_PATH ), 1)) AS json_data
+            PARSE_JSON(DOC_AI_QS_DB.DOC_AI_SCHEMA.DOC_AI_QS_INVOICES!PREDICT(get_presigned_url('@doc_ai_stage', RELATIVE_PATH ), 1)) AS json_data
         FROM doc_ai_qs_db.doc_ai_schema.INVOICE_STREAM
         WHERE METADATA$ACTION = 'INSERT' OR METADATA$ACTION = 'UPDATE'
         );
