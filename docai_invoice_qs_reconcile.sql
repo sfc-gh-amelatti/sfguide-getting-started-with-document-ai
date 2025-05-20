@@ -409,6 +409,10 @@ INSERT INTO doc_ai_qs_db.doc_ai_schema.GOLD_INVOICE_TOTALS (invoice_id, invoice_
 SELECT invoice_id, invoice_date, subtotal, tax, total, reviewed_by, reviewed_timestamp
 FROM ReadyForGold;
 
+-- Clearing our streams of data
+CREATE TEMPORARY TABLE table1 AS SELECT * FROM doc_ai_qs_db.doc_ai_schema.BRONZE_DB_STREAM WHERE 0 = 1;
+CREATE TEMPORARY TABLE table2 AS SELECT * FROM doc_ai_qs_db.doc_ai_schema.BRONZE_DOCAI_STREAM WHERE 0 = 1;
+
   status_message := 'Item reconciliation executed. Discrepancies and auto-reconciled items merged into RECONCILE_RESULTS_TOTALS. Fully auto-reconciled invoices merged into GOLD_INVOICE_TOTALS.';
   RETURN status_message;
 
@@ -483,9 +487,6 @@ create or replace task doc_ai_qs_db.doc_ai_schema.RECONCILE
 	as BEGIN
         CALL SP_RUN_ITEM_RECONCILIATION();
         CALL SP_RUN_TOTALS_RECONCILIATION();
-        -- Statements to empty the streams of processed rows.
-        -- CREATE TEMPORARY TABLE table1 AS SELECT * FROM doc_ai_qs_db.doc_ai_schema.BRONZE_DB_STREAM WHERE 0 = 1;
-        -- CREATE TEMPORARY TABLE table2 AS SELECT * FROM doc_ai_qs_db.doc_ai_schema.BRONZE_DOCAI_STREAM WHERE 0 = 1;
     END;
 
 ALTER TASK doc_ai_qs_db.doc_ai_schema.RECONCILE RESUME;
