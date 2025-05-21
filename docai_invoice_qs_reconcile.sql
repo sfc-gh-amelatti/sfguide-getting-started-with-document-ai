@@ -25,7 +25,7 @@ USING(
         total_price,
         ROW_NUMBER() OVER (
             PARTITION BY invoice_id, product_name
-            ORDER BY quantity, unit_price, total_price -- Refined ORDER BY
+            ORDER BY quantity, unit_price, total_price
         ) as rn_occurrence
         FROM doc_ai_qs_db.doc_ai_schema.TRANSACT_ITEMS a
     ),
@@ -38,7 +38,7 @@ USING(
         total_price,
         ROW_NUMBER() OVER (
             PARTITION BY invoice_id, product_name
-            ORDER BY quantity, unit_price, total_price -- Refined ORDER BY
+            ORDER BY quantity, unit_price, total_price 
         ) as rn_occurrence
     FROM doc_ai_qs_db.doc_ai_schema.DOCAI_INVOICE_ITEMS b
     ),
@@ -71,7 +71,6 @@ USING(
                 COALESCE(IFF(a.quantity <> b.quantity, 'Qty_Diff(' || a.quantity::VARCHAR || ' vs ' || b.quantity::VARCHAR || '); ', ''), '') ||
                 COALESCE(IFF(a.unit_price <> b.unit_price, 'Unit_Price_Diff(' || a.unit_price::VARCHAR || ' vs ' || b.unit_price::VARCHAR || '); ', ''), '') ||
                 COALESCE(IFF(a.total_price <> b.total_price, 'Total_Price_Diff(' || a.total_price::VARCHAR || ' vs ' || b.total_price::VARCHAR || '); ', ''), '')
-                --COALESCE(IFF(LOWER(TRIM(a.Description)) <> LOWER(TRIM(b.Description)), 'Desc_Diff; ', ''), '') -- Case-insensitive desc comparison
                 -- Add more detailed discrepancy checks as needed
             )
         WHEN a.invoice_id IS NOT NULL AND b.invoice_id IS NULL THEN 'In Table A Only'
@@ -110,7 +109,7 @@ SELECT
     NULL as notes
     
 FROM
-    join_table -- Replace YourTable with your actual table name
+    join_table 
 GROUP BY
     Reconciled_invoice_id
 ORDER BY
@@ -119,14 +118,10 @@ ORDER BY
     -- Select final source for merge
     SELECT * FROM ReconciliationSource
   ) AS source
-  -- Use invoice_id, product_name, and line_instance_number as the unique key for merge
   ON target.invoice_id = source.invoice_id
-     --AND target.product_name IS NOT DISTINCT FROM source.product_name -- Handle potential NULL product names
-     --AND target.line_instance_number = source.line_instance_number
 
   -- Action when a record for this item instance already exists
   WHEN MATCHED THEN UPDATE SET
-    --target.reconciliation_status = source.reconciliation_status,
     target.item_mismatch_details = source.item_mismatch_details, -- Update details if discrepancy changes or becomes null if matched
     -- Set review status based on whether it's a discrepancy or auto-reconciled
     target.review_status = CASE
@@ -145,36 +140,19 @@ ORDER BY
     target.notes =  CASE WHEN target.review_status = 'Reviewed' THEN target.notes
                     WHEN source.review_status != 'Auto-reconciled' THEN NULL 
                     ELSE target.notes END
-    -- Update reconciled values if present (will be null for discrepancies)
-    -- target.quantity = source.quantity,
-    -- target.unit_price = source.unit_price,
-    -- target.total_price = source.total_price
 
 
   -- Action when a new discrepancy or auto-reconciled item is found
   WHEN NOT MATCHED THEN INSERT (
     invoice_id,
-    --product_name,
-    --line_instance_number, -- Store the line instance number
-    --reconciliation_status,
     item_mismatch_details, -- Will be NULL for auto-reconciled
     review_status,         -- 'Pending Review' or 'Auto-Reconciled'
     last_reconciled_timestamp
-    -- quantity,              -- Store reconciled values if available
-    -- unit_price,            -- Store reconciled values if available
-    -- total_price            -- Store reconciled values if available
-    -- reviewed_by, reviewed_timestamp, notes, etc remain NULL initially
   ) VALUES (
     source.invoice_id,
-    --source.product_name,
-    --source.line_instance_number,
-    --source.reconciliation_status,
     source.item_mismatch_details,
     source.review_status,
     :current_run_timestamp  -- Use variable for consistency
-    --source.quantity,       -- Will be NULL for discrepancies
-    --source.unit_price,     -- Will be NULL for discrepancies
-    --source.total_price     -- Will be NULL for discrepancies
   );
 
 SELECT * FROM TRANSACT_ITEMS;
@@ -230,10 +208,6 @@ USING(
         subtotal,
         tax,
         total
-        -- ROW_NUMBER() OVER (
-        --     PARTITION BY invoice_id, invoice_date
-        --     ORDER BY subtotal, tax, total -- Refined ORDER BY
-        -- ) as rn_occurrence
         FROM doc_ai_qs_db.doc_ai_schema.TRANSACT_TOTALS a
     ),
     docai_totals AS (
@@ -243,18 +217,12 @@ USING(
         subtotal,
         tax,
         total
-        -- ROW_NUMBER() OVER (
-        --     PARTITION BY invoice_id, invoice_date
-        --     ORDER BY subtotal, tax, total -- Refined ORDER BY
-        -- ) as rn_occurrence
     FROM doc_ai_qs_db.doc_ai_schema.DOCAI_INVOICE_TOTALS b
     ),
 
     join_table AS (SELECT
     COALESCE(a.invoice_id, b.invoice_id) as Reconciled_invoice_id,
-    -- COALESCE(a.invoice_date, b.invoice_date) as Reconciled_invoice_date,
-    -- COALESCE(a.rn_occurrence, b.rn_occurrence) as Product_Occurrence_Num,
-
+    
     -- Data from Table A
     a.invoice_date AS invoiceDate_A,
     a.subtotal AS subtotal_A,
@@ -281,7 +249,6 @@ USING(
                 COALESCE(IFF(a.subtotal <> b.subtotal, 'subtotal_Diff(' || a.subtotal::VARCHAR || ' vs ' || b.subtotal::VARCHAR || '); ', ''), '') ||
                 COALESCE(IFF(a.tax <> b.tax, 'tax_Diff(' || a.tax::VARCHAR || ' vs ' || b.tax::VARCHAR || '); ', ''), '') ||
                 COALESCE(IFF(a.total <> b.total, 'total_Diff(' || a.total::VARCHAR || ' vs ' || b.total::VARCHAR || '); ', ''), '')
-                --COALESCE(IFF(LOWER(TRIM(a.Description)) <> LOWER(TRIM(b.Description)), 'Desc_Diff; ', ''), '') -- Case-insensitive desc comparison
                 -- Add more detailed discrepancy checks as needed
             )
         WHEN a.invoice_id IS NOT NULL AND b.invoice_id IS NULL THEN 'In Table A Only'
@@ -291,7 +258,6 @@ USING(
 FROM db_totals a
 FULL OUTER JOIN docai_totals b
     ON a.invoice_id = b.invoice_id
-    -- AND a.rn_occurrence = b.rn_occurrence
     ),
 
 ReconciliationSource AS (
@@ -303,7 +269,7 @@ SELECT
             ELSE NULL
         END,
         '; '
-    ) WITHIN GROUP (ORDER BY -- Corrected ORDER BY clause
+    ) WITHIN GROUP (ORDER BY
                         CASE
                             WHEN discrepancies IS NOT NULL AND discrepancies <> '' THEN Reconciled_invoice_id || ': ' || discrepancies
                             ELSE NULL
@@ -319,7 +285,7 @@ SELECT
     NULL as notes
     
 FROM
-    join_table -- Replace YourTable with your actual table name
+    join_table 
 GROUP BY
     Reconciled_invoice_id
 ORDER BY
@@ -328,14 +294,10 @@ ORDER BY
     -- Select final source for merge
     SELECT * FROM ReconciliationSource
   ) AS source
-  -- Use invoice_id, invoice_date, and line_instance_number as the unique key for merge
   ON target.invoice_id = source.invoice_id
-     --AND target.invoice_date IS NOT DISTINCT FROM source.invoice_date -- Handle potential NULL product names
-     --AND target.line_instance_number = source.line_instance_number
 
   -- Action when a record for this item instance already exists
   WHEN MATCHED THEN UPDATE SET
-    --target.reconciliation_status = source.reconciliation_status,
     target.item_mismatch_details = source.item_mismatch_details, -- Update details if discrepancy changes or becomes null if matched
     -- Set review status based on whether it's a discrepancy or auto-reconciled
     target.review_status = CASE
@@ -354,36 +316,19 @@ ORDER BY
     target.notes =  CASE WHEN target.review_status = 'Reviewed' THEN target.notes
                     WHEN source.review_status != 'Auto-reconciled' THEN NULL 
                     ELSE target.notes END
-    -- Update reconciled values if present (will be null for discrepancies)
-    -- target.subtotal = source.subtotal,
-    -- target.tax = source.tax,
-    -- target.total = source.total
 
 
   -- Action when a new discrepancy or auto-reconciled item is found
   WHEN NOT MATCHED THEN INSERT (
     invoice_id,
-    --invoice_date,
-    --line_instance_number, -- Store the line instance number
-    --reconciliation_status,
     item_mismatch_details, -- Will be NULL for auto-reconciled
     review_status,         -- 'Pending Review' or 'Auto-Reconciled'
     last_reconciled_timestamp
-    -- subtotal,              -- Store reconciled values if available
-    -- tax,            -- Store reconciled values if available
-    -- total            -- Store reconciled values if available
-    -- reviewed_by, reviewed_timestamp, notes, etc remain NULL initially
   ) VALUES (
     source.invoice_id,
-    --source.invoice_date,
-    --source.line_instance_number,
-    --source.reconciliation_status,
     source.item_mismatch_details,
     source.review_status,
     :current_run_timestamp  -- Use variable for consistency
-    --source.subtotal,       -- Will be NULL for discrepancies
-    --source.tax,     -- Will be NULL for discrepancies
-    --source.total     -- Will be NULL for discrepancies
   );
 
 SELECT * FROM TRANSACT_TOTALS;
