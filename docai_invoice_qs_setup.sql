@@ -94,14 +94,14 @@ create or replace task doc_ai_qs_db.doc_ai_schema.DOCAI_EXTRACT
             snowflake_file_url
         FROM
             doc_ai_qs_db.doc_ai_schema.docai_parsed p,
-            LATERAL FLATTEN(input => p.json_data:"order_info|Name") ni,
+            LATERAL FLATTEN(input => p.json_data:"order_info|Item") ni,
             LATERAL FLATTEN(input => p.json_data:"order_info|Quantity") qi,
             LATERAL FLATTEN(input => p.json_data:"order_info|Price") pri,
             LATERAL FLATTEN(input => p.json_data:"order_info|Total") ti
         WHERE
             ni.index = pri.index AND
             ni.index = qi.index AND
-            ni.index = ti.index;
+            ni.index = ti.index
         );
         
         DELETE FROM doc_ai_qs_db.doc_ai_schema.DOCAI_INVOICE_ITEMS
@@ -155,9 +155,6 @@ create or replace task doc_ai_qs_db.doc_ai_schema.DOCAI_EXTRACT
     END;
 
 ALTER TASK doc_ai_qs_db.doc_ai_schema.DOCAI_EXTRACT RESUME;
-
--- SCHEMA FOR THE STREAMLIT APP
-CREATE OR REPLACE SCHEMA doc_ai_qs_db.streamlit_schema;
 
 CREATE OR REPLACE TABLE doc_ai_qs_db.doc_ai_schema.TRANSACT_ITEMS (
     invoice_id VARCHAR(255),

@@ -10,8 +10,8 @@ import io
 st.set_page_config(layout="wide") # Use wider layout for tables
 
 # --- Configuration ---
-DB_NAME = "doc_ai_qs_db"
-SCHEMA_NAME = "doc_ai_schema"
+DB_NAME = "DOC_AI_QS_DB"
+SCHEMA_NAME = "DOC_AI_SCHEMA"
 STAGE_NAME = "DOC_AI_STAGE"
 
 RECONCILE_ITEMS_TABLE = f"{DB_NAME}.{SCHEMA_NAME}.RECONCILE_RESULTS_ITEMS"
@@ -24,12 +24,16 @@ BRONZE_DOCAI_TOTALS_TABLE = f"{DB_NAME}.{SCHEMA_NAME}.DOCAI_INVOICE_TOTALS"
 GOLD_ITEMS_TABLE = f"{DB_NAME}.{SCHEMA_NAME}.GOLD_INVOICE_ITEMS"
 GOLD_TOTALS_TABLE = f"{DB_NAME}.{SCHEMA_NAME}.GOLD_INVOICE_TOTALS"
 
+if 'processed_invoice_id' not in st.session_state:
+    st.session_state.processed_invoice_id = None
+if 'cached_mismatch_summary' not in st.session_state:
+    st.session_state.cached_mismatch_summary = None
+
 # --- Get Snowflake Session ---
 try:
     session = get_active_session()
     st.success("❄️ Snowflake session established!")
-    CURRENT_USER = 'instacart_admin'
-    #CURRENT_USER = session.sql("SELECT CURRENT_USER()").replace("'", "''") # Get current user for audit and escape quotes
+    CURRENT_USER = session.get_current_role().replace("\"", "")
 except Exception as e:
     st.error(f"Error getting Snowflake session: {e}")
     st.stop() # Stop execution if session cannot be established
@@ -244,21 +248,6 @@ def get_invoice_reconciliation_metrics(session: session) -> dict | None:
     except Exception as e:
         st.error(f"Snowflake SQL Error during reconciliation: {e}")
         return None
-    except ZeroDivisionError:
-         # This case is handled by the conditional ratio calculation, but added for completeness
-         st.error("Division by zero encountered, likely no invoices or zero total amount found.")
-         # Return zeros or specific error structure if needed
-         return {
-            'total_invoice_count': 0,
-            'grand_total_amount': 0.0,
-            'reconciled_invoice_count': 0,
-            'total_reconciled_amount': 0.0,
-            'reconciled_invoice_ratio': 0.0,
-            'reconciled_amount_ratio': 0.0
-        }
-    except Exception as e:
-        st.error(f"An unexpected error occurred during reconciliation: {e}")
-        return None
 
 
 
@@ -307,7 +296,7 @@ def load_bronze_data(invoice_id):
 
 # --- Streamlit App UI ---
 st.title("🛒 Instacart Invoice Reconciliation")
-st.markdown(f"Connected as user: **{CURRENT_USER}**")
+st.markdown(f"Connected as role: **{CURRENT_USER}**")
 
 # --- Section 0: Display Totals
 #run_reconciliation(session)
@@ -381,8 +370,13 @@ st.header("2. Review and Correct Invoice Data")
 
 if selected_invoice_id:
     st.subheader(f"Displaying Data for Invoice: `{selected_invoice_id}`")
-    mismatch_summary = summarize_mismatch_details(session, reconcile_items_details_df, reconcile_totals_details_df, selected_invoice_id)
-    st.subheader(f"{mismatch_summary}")
+    if selected_invoice_id != st.session_state.processed_invoice_id:
+        mismatch_summary = summarize_mismatch_details(session, reconcile_items_details_df, reconcile_totals_details_df, selected_invoice_id)
+        st.session_state.cached_mismatch_summary = mismatch_summary
+        st.session_state.processed_invoice_id = selected_invoice_id
+    if st.session_state.cached_mismatch_summary is not None:
+        st.subheader(f"{st.session_state.cached_mismatch_summary}")
+    #st.subheader(f"{mismatch_summary}")
     # Load data from Bronze layer
     bronze_data_dict = load_bronze_data(selected_invoice_id)
 
@@ -652,9 +646,7 @@ if selected_invoice_id:
 
                     # --- Clear Cache and Rerun ---
                     st.cache_data.clear() # Clear the cache to reflect updated reconcile status
-                    # Clear edited state to avoid accidental resubmission? Maybe not needed with rerun.
-                    # if 'edited_transact_items' in st.session_state: del st.session_state.edited_transact_items
-                    # if 'edited_transact_totals' in st.session_state: del st.session_state.edited_transact_totals
+
                     st.info("Refreshing application...")
                     st.rerun() # Rerun the app to refresh the invoice list
 
