@@ -6,7 +6,7 @@
 
 Organizations handle a vast number of documents from various vendors, departments, and external sources, integrating them into internal systems. These documents often contain critical data required by downstream systems. Many businesses rely on manual or semi-automated processes that are inefficient and require significant human intervention.  
 
-This solution **fully automates the end-to-end data extraction process** using **Document AI table extraction model**, integrating with **Snowflake** for structured storage and invoice reconciliation.  
+This solution **fully automates the end-to-end invoice data extraction and reconciliation process** using **Document AI table extraction model**, integrating with **Snowflake** for structured storage, invoice reconciliation, and visualization.  
 
 ## Solution Components  
 
