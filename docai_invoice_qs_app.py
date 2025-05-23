@@ -295,7 +295,7 @@ def load_bronze_data(invoice_id):
         return {} # Return empty dict on error
 
 # --- Streamlit App UI ---
-st.title("🛒 Instacart Invoice Reconciliation")
+st.title("🛒 Invoice Reconciliation")
 st.markdown(f"Connected as role: **{CURRENT_USER}**")
 
 # --- Section 0: Display Totals
