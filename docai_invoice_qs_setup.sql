@@ -82,22 +82,26 @@ create or replace task doc_ai_qs_db.doc_ai_schema.DOCAI_EXTRACT
 
         CREATE OR REPLACE TEMPORARY TABLE extracted_item_data AS (
         SELECT
-            -- Fields from the 'invoice_info' array (assuming only one element at index 0)
-            -- Remove '$' and ',' characters, then attempt to cast to DECIMAL
-            REPLACE(SPLIT_PART(p.json_data:total_info[0]:value::STRING, '|', 1), '#', '') AS invoice_id,
-            SPLIT_PART(f_order.value:value::STRING, '|', 1) AS product_name,
-            TRY_CAST(SPLIT_PART(f_order.value:value::STRING, '|', 2) AS NUMBER(12, 2)) AS quantity,
-            -- Attempt to cast amount_price to DECIMAL, removing commas and handling potential errors
-            TRY_CAST(REPLACE(REPLACE(SPLIT_PART(f_order.value:value::STRING, '|', 3), '$', ''), ',', '') AS NUMBER(12, 2)) AS unit_price,
-            TRY_CAST(REPLACE(REPLACE(SPLIT_PART(f_order.value:value::STRING, '|', 4), '$', ''), ',', '') AS NUMBER(12, 2)) AS total_price,
+            -- Remove '$' and ',' characters, then attempt to cast to NUMBER for appropriate values
+            REPLACE(p.json_data:"total_info|Invoice ID"[0].value::STRING, '#', '') AS invoice_id,
+            ni.value:"value"::STRING AS product_name,
+            TRY_CAST(qi.value:"value"::STRING AS NUMBER(12, 2)) AS quantity,
+            TRY_CAST(REPLACE(REPLACE(pri.value:"value"::STRING, '$', ''), ',', '') AS NUMBER(12, 2)) AS unit_price,
+            TRY_CAST(REPLACE(REPLACE(ti.value:"value"::STRING, '$', ''), ',', '') AS NUMBER(12, 2)) AS total_price,
             file_name,
             file_size,
             last_modified,
             snowflake_file_url
         FROM
             doc_ai_qs_db.doc_ai_schema.docai_parsed p,
-            -- Use LATERAL FLATTEN to create a new row for each item in the 'order_info' array
-            LATERAL FLATTEN(input => p.json_data:order_info) f_order
+            LATERAL FLATTEN(input => p.json_data:"order_info|Item") ni,
+            LATERAL FLATTEN(input => p.json_data:"order_info|Quantity") qi,
+            LATERAL FLATTEN(input => p.json_data:"order_info|Price") pri,
+            LATERAL FLATTEN(input => p.json_data:"order_info|Total") ti
+        WHERE
+            ni.index = pri.index AND
+            ni.index = qi.index AND
+            ni.index = ti.index
         );
         
         DELETE FROM doc_ai_qs_db.doc_ai_schema.DOCAI_INVOICE_ITEMS
@@ -110,13 +114,12 @@ create or replace task doc_ai_qs_db.doc_ai_schema.DOCAI_EXTRACT
 
         CREATE OR REPLACE TEMPORARY TABLE extracted_total_data AS(
             SELECT
-                -- Fields from the 'totals' array (assuming only one element at index 0)
-                -- Remove '$' and ',' characters, then attempt to cast to DECIMAL
-                REPLACE(SPLIT_PART(p.json_data:total_info[0]:value::STRING, '|', 1), '#', '') AS invoice_id,
-                TRY_CAST(SPLIT_PART(p.json_data:total_info[0]:value::STRING, '|', 2) AS DATE) AS invoice_date,
-                TRY_CAST(REPLACE(REPLACE(SPLIT_PART(p.json_data:total_info[0]:value::STRING, '|', 3), '$', ''), ',', '') AS NUMBER(12, 2)) AS subtotal,
-                TRY_CAST(REPLACE(REPLACE(SPLIT_PART(p.json_data:total_info[0]:value::STRING, '|', 4), '$', ''), ',', '') AS NUMBER(12, 2)) AS tax,
-                TRY_CAST(REPLACE(REPLACE(SPLIT_PART(p.json_data:total_info[0]:value::STRING, '|', 5), '$', ''), ',', '') AS NUMBER(12, 2)) AS total,
+                -- Remove '$' and ',' characters, then attempt to cast to NUMBER for appropriate values
+                REPLACE(p.json_data:"total_info|Invoice ID"[0].value::STRING, '#', '') AS invoice_id,
+                TRY_CAST(p.json_data:"total_info|Date"[0].value::STRING AS DATE) AS invoice_date,
+                TRY_CAST(REPLACE(REPLACE(p.json_data:"total_info|Subtotal"[0].value::STRING, '$', ''), ',', '') AS NUMBER(12, 2)) AS subtotal,
+                TRY_CAST(REPLACE(REPLACE(p.json_data:"total_info|Tax"[0].value::STRING, '$', ''), ',', '') AS NUMBER(12, 2)) AS tax,
+                TRY_CAST(REPLACE(REPLACE(p.json_data:"total_info|Grand Total"[0].value::STRING, '$', ''), ',', '') AS NUMBER(12, 2)) AS total,
                 file_name,
                 file_size,
                 last_modified,
@@ -128,7 +131,7 @@ create or replace task doc_ai_qs_db.doc_ai_schema.DOCAI_EXTRACT
         DELETE FROM doc_ai_qs_db.doc_ai_schema.DOCAI_INVOICE_TOTALS
         WHERE invoice_id IN (SELECT DISTINCT invoice_id FROM extracted_total_data);
         
-        -- Step 2: Insert all the new line items from incoming_data.
+        -- Step 2: Insert all the new totals from incoming_data.
         INSERT INTO doc_ai_qs_db.doc_ai_schema.DOCAI_INVOICE_TOTALS (invoice_id,
           invoice_date,
           subtotal,
@@ -152,9 +155,6 @@ create or replace task doc_ai_qs_db.doc_ai_schema.DOCAI_EXTRACT
     END;
 
 ALTER TASK doc_ai_qs_db.doc_ai_schema.DOCAI_EXTRACT RESUME;
-
--- SCHEMA FOR THE STREAMLIT APP
-CREATE OR REPLACE SCHEMA doc_ai_qs_db.streamlit_schema;
 
 CREATE OR REPLACE TABLE doc_ai_qs_db.doc_ai_schema.TRANSACT_ITEMS (
     invoice_id VARCHAR(255),
